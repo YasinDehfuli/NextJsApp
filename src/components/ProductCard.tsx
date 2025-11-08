@@ -24,6 +24,7 @@ export default function ProductCard({ product }: ProductCardProps) {
                     fill
                     className="object-cover"
                     sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                    unoptimized
                 />
             </div>
             <div className="p-4 flex-1 flex flex-col">
