@@ -3,17 +3,18 @@
 import Image from 'next/image';
 import { Product } from '@/types/productTypes';
 import { useCart } from '@/context/CartContext';
+import { memo, useCallback } from 'react';
 
 interface ProductCardProps {
     product: Product;
 }
 
-export default function ProductCard({ product }: ProductCardProps) {
+function ProductCard({ product }: ProductCardProps) {
     const { addToCart } = useCart();
 
-    const handleAddToCart = () => {
+    const handleAddToCart = useCallback(() => {
         addToCart(product);
-    };
+    }, [addToCart, product]);
 
     return (
         <div className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-all duration-300 flex flex-col h-full">
@@ -24,6 +25,7 @@ export default function ProductCard({ product }: ProductCardProps) {
                     fill
                     className="object-cover"
                     sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                    loading="lazy"
                     unoptimized
                 />
             </div>
@@ -47,3 +49,5 @@ export default function ProductCard({ product }: ProductCardProps) {
         </div>
     );
 }
+
+export default memo(ProductCard);
