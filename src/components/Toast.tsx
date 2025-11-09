@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Toast as ToastType } from '@/types/toastTypes';
 
 interface ToastProps {
@@ -11,6 +11,13 @@ interface ToastProps {
 const Toast: React.FC<ToastProps> = ({ toast, onRemove }) => {
     const [isExiting, setIsExiting] = useState(false);
 
+    const handleClose = useCallback(() => {
+        setIsExiting(true);
+        setTimeout(() => {
+            onRemove(toast.id);
+        }, 300);
+    }, [onRemove, toast.id]);
+
     useEffect(() => {
         if (toast.duration) {
             const timer = setTimeout(() => {
@@ -19,14 +26,7 @@ const Toast: React.FC<ToastProps> = ({ toast, onRemove }) => {
 
             return () => clearTimeout(timer);
         }
-    }, [toast.duration]);
-
-    const handleClose = () => {
-        setIsExiting(true);
-        setTimeout(() => {
-            onRemove(toast.id);
-        }, 300);
-    };
+    }, [toast.duration, handleClose]);
 
     const getIcon = () => {
         switch (toast.type) {
