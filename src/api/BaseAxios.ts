@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
 import { storage } from '@/services/storageService';
 
+// https://jsonplaceholder.typicode.com is a sample for api's NEXT_PUBLIC_API_URL is same with jsonplace holder url
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://jsonplaceholder.typicode.com';
 
 const baseAxios: AxiosInstance = axios.create({
