@@ -3,7 +3,20 @@ import { getAllPhotos } from '@/api/photos/route';
 import { Product } from '@/types/productTypes';
 import { generatePrice } from '@/utils/priceGenerator';
 
+let productsCache: Product[] | null = null;
+let cacheTimestamp: number | null = null;
+const CACHE_DURATION = 5 * 60 * 1000;
+
+const isCacheValid = (): boolean => {
+    if (!productsCache || !cacheTimestamp) return false;
+    return Date.now() - cacheTimestamp < CACHE_DURATION;
+};
+
 export const getAllProducts = async (): Promise<Product[]> => {
+    if (isCacheValid() && productsCache) {
+        return productsCache;
+    }
+
     const [posts, photos] = await Promise.all([getAllPosts(), getAllPhotos()]);
 
     const products: Product[] = posts.slice(0, 50).map((post) => {
@@ -19,15 +32,8 @@ export const getAllProducts = async (): Promise<Product[]> => {
         };
     });
 
+    productsCache = products;
+    cacheTimestamp = Date.now();
+
     return products;
-};
-
-export const getProductById = async (id: number): Promise<Product | null> => {
-    const products = await getAllProducts();
-    return products.find(product => product.id === id) || null;
-};
-
-export const getProductsByUserId = async (userId: number): Promise<Product[]> => {
-    const products = await getAllProducts();
-    return products.filter(product => product.userId === userId);
 };
