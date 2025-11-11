@@ -3,6 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useCart } from '@/context/CartContext';
+import CheckoutButton from '@/components/CheckoutButton';
 
 export default function CartPage() {
     const { cart, removeFromCart, updateQuantity, clearCart, totalItems, totalPrice } = useCart();
@@ -140,9 +141,7 @@ export default function CartPage() {
                                     <span>${totalPrice.toFixed(2)}</span>
                                 </div>
                             </div>
-                            <button className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition-colors duration-200">
-                                Proceed to Checkout
-                            </button>
+                            <CheckoutButton cartItems={cart} totalPrice={totalPrice} />
                             <Link
                                 href="/products"
                                 className="block text-center text-blue-600 hover:text-blue-700 mt-4 font-semibold"
