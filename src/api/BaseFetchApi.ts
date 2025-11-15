@@ -1,4 +1,5 @@
-import { storage } from '@/services/storageService';
+import {storage} from '@/services/storageService';
+import {errorHandler, ApiError, ErrorType} from '@/utils/BaseErrorHandler';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://jsonplaceholder.typicode.com';
 
@@ -8,17 +9,6 @@ interface FetchConfig extends RequestInit {
     params?: Record<string, string | number | boolean>;
     transformRequest?: ((data: unknown, headers: Headers) => unknown)[];
     transformResponse?: ((data: unknown) => unknown)[];
-}
-
-interface AxiosLikeError extends Error {
-    response?: {
-        data: unknown;
-        status: number;
-        statusText: string;
-        headers: Headers;
-    };
-    request?: Request;
-    config?: FetchRequestConfig;
 }
 
 interface RequestInterceptor {
@@ -91,7 +81,6 @@ class BaseFetchApi {
                 return config;
             },
             onRejected: (error: Error) => {
-                console.error('Request error:', error.message);
                 return Promise.reject(error);
             }
         });
@@ -104,9 +93,6 @@ class BaseFetchApi {
                 if (error instanceof Response && error.status === 401) {
                     storage.remove('user');
                 }
-
-                const errorMessage = error.message || 'An error occurred';
-                console.error('Response error:', errorMessage);
 
                 return Promise.reject(error);
             }
@@ -177,26 +163,6 @@ class BaseFetchApi {
         return queryString ? `${url}?${queryString}` : url;
     }
 
-    private createAxiosLikeError(
-        message: string,
-        response?: Response,
-        config?: FetchRequestConfig,
-        responseData?: unknown
-    ): AxiosLikeError {
-        const error = new Error(message) as AxiosLikeError;
-
-        if (response) {
-            error.response = {
-                data: responseData,
-                status: response.status,
-                statusText: response.statusText,
-                headers: response.headers,
-            };
-        }
-
-        error.config = config;
-        return error;
-    }
 
     private async request<T = unknown>(
         url: string,
@@ -229,7 +195,13 @@ class BaseFetchApi {
             signal: this.createAbortSignal(options.timeout || this.timeout),
         };
 
-        const modifiedConfig = await this.applyRequestInterceptors(requestConfig);
+        let modifiedConfig: FetchRequestConfig;
+
+        try {
+            modifiedConfig = await this.applyRequestInterceptors(requestConfig);
+        } catch (error) {
+            throw errorHandler.handleUnknownError(error, fullUrl, requestConfig.method);
+        }
 
         try {
             const response = await fetch(modifiedConfig.url, {
@@ -255,29 +227,42 @@ class BaseFetchApi {
                     errorData = modifiedResponse.statusText;
                 }
 
-                throw this.createAxiosLikeError(
-                    `Request failed with status ${modifiedResponse.status}`,
-                    modifiedResponse,
-                    modifiedConfig,
-                    errorData
+                throw errorHandler.handleHttpError(
+                    modifiedResponse.status,
+                    modifiedResponse.statusText,
+                    errorData,
+                    modifiedConfig.url,
+                    modifiedConfig.method
                 );
             }
 
             let responseData: unknown = modifiedResponse;
-            for (const transformer of this.transformResponse) {
-                responseData = await transformer(responseData);
+            try {
+                for (const transformer of this.transformResponse) {
+                    responseData = await transformer(responseData);
+                }
+            } catch (parseError) {
+                throw errorHandler.handleParseError(
+                    parseError as Error,
+                    modifiedConfig.url,
+                    modifiedConfig.method
+                );
             }
 
             return responseData as T;
         } catch (error) {
             if ((error as Error).name === 'AbortError') {
-                throw this.createAxiosLikeError(
-                    'Request timeout',
-                    undefined,
-                    modifiedConfig,
-                    undefined
+                throw errorHandler.handleTimeoutError(modifiedConfig.url, modifiedConfig.method);
+            }
+
+            if ((error as Error).name === 'TypeError' && (error as Error).message.includes('fetch')) {
+                throw errorHandler.handleNetworkError(
+                    error as Error,
+                    modifiedConfig.url,
+                    modifiedConfig.method
                 );
             }
+
             throw error;
         }
     }
@@ -286,7 +271,7 @@ class BaseFetchApi {
         url: string,
         config?: RequestInit & { timeout?: number; params?: Record<string, string | number | boolean> }
     ): Promise<T> {
-        return this.request<T>(url, { ...config, method: 'GET' });
+        return this.request<T>(url, {...config, method: 'GET'});
     }
 
     async post<T = unknown>(
@@ -294,7 +279,7 @@ class BaseFetchApi {
         data?: unknown,
         config?: RequestInit & { timeout?: number; params?: Record<string, string | number | boolean> }
     ): Promise<T> {
-        return this.request<T>(url, { ...config, method: 'POST', body: data as BodyInit });
+        return this.request<T>(url, {...config, method: 'POST', body: data as BodyInit});
     }
 
     async put<T = unknown>(
@@ -302,7 +287,7 @@ class BaseFetchApi {
         data?: unknown,
         config?: RequestInit & { timeout?: number; params?: Record<string, string | number | boolean> }
     ): Promise<T> {
-        return this.request<T>(url, { ...config, method: 'PUT', body: data as BodyInit });
+        return this.request<T>(url, {...config, method: 'PUT', body: data as BodyInit});
     }
 
     async patch<T = unknown>(
@@ -310,36 +295,15 @@ class BaseFetchApi {
         data?: unknown,
         config?: RequestInit & { timeout?: number; params?: Record<string, string | number | boolean> }
     ): Promise<T> {
-        return this.request<T>(url, { ...config, method: 'PATCH', body: data as BodyInit });
+        return this.request<T>(url, {...config, method: 'PATCH', body: data as BodyInit});
     }
 
     async delete<T = unknown>(
         url: string,
         config?: RequestInit & { timeout?: number; params?: Record<string, string | number | boolean> }
     ): Promise<T> {
-        return this.request<T>(url, { ...config, method: 'DELETE' });
+        return this.request<T>(url, {...config, method: 'DELETE'});
     }
-
-    interceptors = {
-        request: {
-            use: (
-                onFulfilled?: (config: FetchRequestConfig) => FetchRequestConfig | Promise<FetchRequestConfig>,
-                onRejected?: (error: Error) => Error | Promise<Error>
-            ) => {
-                this.requestInterceptors.push({ onFulfilled, onRejected });
-                return this.requestInterceptors.length - 1;
-            }
-        },
-        response: {
-            use: (
-                onFulfilled?: (response: Response) => Response | Promise<Response>,
-                onRejected?: (error: Error) => Error | Promise<Error>
-            ) => {
-                this.responseInterceptors.push({ onFulfilled, onRejected });
-                return this.responseInterceptors.length - 1;
-            }
-        }
-    };
 }
 
 const baseFetchApi = new BaseFetchApi({
@@ -348,5 +312,5 @@ const baseFetchApi = new BaseFetchApi({
 });
 
 export default baseFetchApi;
-export { BaseFetchApi };
-export type { FetchConfig, FetchRequestConfig, AxiosLikeError };
+export {BaseFetchApi, errorHandler, ApiError, ErrorType};
+export type {FetchConfig, FetchRequestConfig};
