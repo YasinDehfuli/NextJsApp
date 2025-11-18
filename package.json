@@ -6,7 +6,9 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "docker:build": "docker build -t nextjsapp:latest .",
+    "docker:run": "docker run -p 3000:3000 nextjsapp:latest"
   },
   "dependencies": {
     "next": "15.5.6",
