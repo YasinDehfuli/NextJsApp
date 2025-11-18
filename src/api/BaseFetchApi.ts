@@ -30,15 +30,17 @@ interface FetchRequestConfig {
 }
 
 class BaseFetchApi {
-    private baseURL: string;
-    private defaultHeaders: Headers;
-    private timeout: number;
-    private transformRequest: ((data: unknown, headers: Headers) => unknown)[];
-    private transformResponse: ((data: unknown) => unknown)[];
+    private static instance: BaseFetchApi | null = null;
+
+    private readonly baseURL: string;
+    private readonly defaultHeaders: Headers;
+    private readonly timeout: number;
+    private readonly transformRequest: ((data: unknown, headers: Headers) => unknown)[];
+    private readonly transformResponse: ((data: unknown) => unknown)[];
     private requestInterceptors: RequestInterceptor[] = [];
     private responseInterceptors: ResponseInterceptor[] = [];
 
-    constructor(config: FetchConfig = {}) {
+    private constructor(config: FetchConfig = {}) {
         this.baseURL = config.baseURL || BASE_URL;
         this.timeout = config.timeout || 30000;
         this.defaultHeaders = new Headers({
@@ -69,7 +71,49 @@ class BaseFetchApi {
         this.setupInterceptors();
     }
 
-    private setupInterceptors() {
+    public static getInstance(config?: FetchConfig): BaseFetchApi {
+        if (!BaseFetchApi.instance) {
+            BaseFetchApi.instance = new BaseFetchApi(config);
+        }
+        return BaseFetchApi.instance;
+    }
+
+    public static resetInstance(): void {
+        BaseFetchApi.instance = null;
+    }
+
+    public addRequestInterceptor(interceptor: RequestInterceptor): void {
+        this.requestInterceptors.push(interceptor);
+    }
+
+    public addResponseInterceptor(interceptor: ResponseInterceptor): void {
+        this.responseInterceptors.push(interceptor);
+    }
+
+    public clearRequestInterceptors(): void {
+        this.requestInterceptors = [];
+        this.setupDefaultRequestInterceptors();
+    }
+
+    public clearResponseInterceptors(): void {
+        this.responseInterceptors = [];
+        this.setupDefaultResponseInterceptors();
+    }
+
+    public getBaseURL(): string {
+        return this.baseURL;
+    }
+
+    public getTimeout(): number {
+        return this.timeout;
+    }
+
+    private setupInterceptors(): void {
+        this.setupDefaultRequestInterceptors();
+        this.setupDefaultResponseInterceptors();
+    }
+
+    private setupDefaultRequestInterceptors(): void {
         this.requestInterceptors.push({
             onFulfilled: (config: FetchRequestConfig) => {
                 const token = storage.get<string>('user', '');
@@ -84,7 +128,9 @@ class BaseFetchApi {
                 return Promise.reject(error);
             }
         });
+    }
 
+    private setupDefaultResponseInterceptors(): void {
         this.responseInterceptors.push({
             onFulfilled: (response: Response) => {
                 return response;
@@ -164,20 +210,28 @@ class BaseFetchApi {
     }
 
 
+    private mergeHeaders(target: Headers, source?: HeadersInit): Headers {
+        if (!source) return target;
+
+        const sourceHeaders = new Headers(source);
+        sourceHeaders.forEach((value, key) => {
+            target.set(key, value);
+        });
+
+        return target;
+    }
+
+    private isApiError(error: unknown): error is ApiError {
+        return error instanceof ApiError;
+    }
+
     private async request<T = unknown>(
         url: string,
         options: RequestInit & { timeout?: number; params?: Record<string, string | number | boolean> } = {}
     ): Promise<T> {
         const urlWithParams = this.buildUrl(url, options.params);
         const fullUrl = urlWithParams.startsWith('http') ? urlWithParams : `${this.baseURL}${urlWithParams}`;
-        const headers = new Headers(this.defaultHeaders);
-
-        if (options.headers) {
-            const customHeaders = new Headers(options.headers);
-            customHeaders.forEach((value, key) => {
-                headers.set(key, value);
-            });
-        }
+        const headers = this.mergeHeaders(new Headers(this.defaultHeaders), options.headers);
 
         let body = options.body;
 
@@ -200,6 +254,9 @@ class BaseFetchApi {
         try {
             modifiedConfig = await this.applyRequestInterceptors(requestConfig);
         } catch (error) {
+            if (this.isApiError(error)) {
+                throw error;
+            }
             throw errorHandler.handleUnknownError(error, fullUrl, requestConfig.method);
         }
 
@@ -251,16 +308,22 @@ class BaseFetchApi {
 
             return responseData as T;
         } catch (error) {
-            if ((error as Error).name === 'AbortError') {
-                throw errorHandler.handleTimeoutError(modifiedConfig.url, modifiedConfig.method);
+            if (this.isApiError(error)) {
+                throw error;
             }
 
-            if ((error as Error).name === 'TypeError' && (error as Error).message.includes('fetch')) {
-                throw errorHandler.handleNetworkError(
-                    error as Error,
-                    modifiedConfig.url,
-                    modifiedConfig.method
-                );
+            if (error instanceof Error) {
+                if (error.name === 'AbortError') {
+                    throw errorHandler.handleTimeoutError(modifiedConfig.url, modifiedConfig.method);
+                }
+
+                if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                    throw errorHandler.handleNetworkError(
+                        error,
+                        modifiedConfig.url,
+                        modifiedConfig.method
+                    );
+                }
             }
 
             throw error;
@@ -306,11 +369,11 @@ class BaseFetchApi {
     }
 }
 
-const baseFetchApi = new BaseFetchApi({
+const baseFetchApi = BaseFetchApi.getInstance({
     baseURL: BASE_URL,
     timeout: 30000,
 });
 
 export default baseFetchApi;
 export {BaseFetchApi, errorHandler, ApiError, ErrorType};
-export type {FetchConfig, FetchRequestConfig};
+export type {FetchConfig, FetchRequestConfig, RequestInterceptor, ResponseInterceptor};
